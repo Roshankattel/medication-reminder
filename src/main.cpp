@@ -18,8 +18,8 @@
 
 #define DHT_TYPE DHT22
 
-#define URL "http://192.168.1.133:8080/api/v1/" TOKEN "/telemetry"
 #define TOKEN "gXvM5xBt0zrXHUpdfXlY"
+#define URL "http://192.168.1.133:8080/api/v1/" TOKEN "/telemetry"
 
 const char *ssid = "bhojpure";
 const char *password = "Bhojpure@4109123";
@@ -39,7 +39,8 @@ uint8_t lastHour, lastMins, hour, mins = 0;
 uint32_t lastPress = 0;
 uint32_t lastReadTime = 0;
 
-uint8_t medNotifyNum = 0;
+int medNotifyNum = -1;
+uint8_t nextMedicationTime = 0;
 DateTime now;
 
 boolean readDHT(void)
@@ -67,6 +68,7 @@ void checkTime(void);
 void checkSensor(bool firstWrite);
 void checkMotion(void);
 void checkHelpBtn(void);
+int findIndex(uint8_t array[], int size, int element);
 
 void setup()
 {
@@ -141,6 +143,7 @@ void setup()
       char nextMedString[32];
       sprintf(nextMedString, "Next Medicine: %02d:00", mediTime[i]);
       lcd.print(nextMedString);
+      nextMedicationTime = mediTime[i];
       break;
     }
   }
@@ -150,37 +153,18 @@ void loop()
 {
   /*Update Time*/
   checkTime();
+
   /*Temperatue and Humidity*/
   checkSensor(false);
+
   /*Motion Detection */
-  if (medNotifyNum > 0)
+  if (medNotifyNum >= 0)
     checkMotion();
 
   /*HELP BUTTON*/
   checkHelpBtn();
 
   delay(1000); // delay 1 seconds
-}
-
-int sendHTTPReq(String payload)
-{
-  if (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.println("WiFi Disconnected");
-    return -1;
-  }
-  WiFiClient client;
-  HTTPClient http;
-  if (!http.begin(client, URL))
-  {
-    Serial.println("HTTP begin error!");
-    return -1;
-  }
-  int httpResponseCode = http.POST(payload);
-  Serial.print("HTTP Response code: ");
-  Serial.println(httpResponseCode);
-  http.end();
-  return httpResponseCode;
 }
 
 void checkTime(void)
@@ -212,16 +196,14 @@ void checkTime(void)
   if (mins != 0)
     return;
 
-  for (int i = 0; i < sizeof(mediTime) / sizeof(mediTime[0]); i++)
+  if (nextMedicationTime == hour)
   {
-    if (hour == mediTime[i])
-    {
-      Serial.println("It's medication time");
-      digitalWrite(ledPins[i], HIGH);
-      digitalWrite(BUZZER, HIGH);
-      medNotifyNum = i;
-      break;
-    }
+    int index = findIndex(mediTime, sizeof(mediTime) / sizeof(mediTime[0]), nextMedicationTime);
+    lcd.setCursor(0, 1);
+    lcd.print("Pls take Medicine:" + String(index + 1));
+    digitalWrite(ledPins[index], HIGH);
+    digitalWrite(BUZZER, HIGH);
+    medNotifyNum = index;
   }
 }
 
@@ -229,11 +211,9 @@ void checkSensor(bool firstWrite)
 {
   if (millis() - lastReadTime < TEMP_READ_TIME && !firstWrite)
     return;
-
   if (!readDHT())
     return;
-
-  Serial.println("Reading temperature data");
+  // Serial.println("Reading temperature data");
   lcd.setCursor(0, 2);
   lcd.print("T:" + String(t) + "C,H:" + String(h) + "%-> ");
   String conditon;
@@ -248,8 +228,11 @@ void checkSensor(bool firstWrite)
     conditon = "High H";
   else
     conditon = "Good";
-
   lcd.print(conditon);
+  if (conditon != "Good")
+  {
+    // send HTTP request
+  }
   lastReadTime = millis();
 }
 
@@ -261,12 +244,16 @@ void checkMotion(void)
   Serial.println("Motion Detected!");
   digitalWrite(BUZZER, LOW);
   digitalWrite(ledPins[medNotifyNum], LOW);
-  lcd.setCursor(0, 2);
+  lcd.setCursor(0, 1);
+  lcd.print("Medicine " + String(medNotifyNum + 1) + " Taken   ");
+  lcd.setCursor(0, 3);
   char nextMedString[32];
-  sprintf(nextMedString, "Next Medicine: %02d:00", (mediTime[medNotifyNum + 1]));
+  uint8_t count = sizeof(mediTime) / sizeof(mediTime[0]);
+  nextMedicationTime = medNotifyNum + 1 >= count ? mediTime[0] : mediTime[medNotifyNum + 1];
+  sprintf(nextMedString, "Next Medicine: %02d:00", nextMedicationTime);
   lcd.print(nextMedString);
   // Send HTTP Requestion
-  medNotifyNum = 0;
+  medNotifyNum = -1;
 }
 
 void checkHelpBtn(void)
@@ -280,18 +267,52 @@ void checkHelpBtn(void)
   {
     Serial.println("Help Requested");
     String jsonString = "{\"power\":false}";
+    lcd.setCursor(0, 1);
     if (sendHTTPReq(jsonString) == 200)
     {
-      lcd.setCursor(0, 1);
       lcd.print("   HELP REQUESTED   ");
     }
     else
     {
-      Serial.println("Failed");
+      lcd.print(" HELP REQUEST FAIL! ");
+      Serial.println("HTTP Request Failed");
     }
-    // digitalWrite(LED1, HIGH);
-    // digitalWrite(LED2, HIGH);
-    // digitalWrite(LED3, HIGH);
+    for (int i = 0; i < sizeof(ledPins) / sizeof(ledPins[0]); i++)
+    {
+      digitalWrite(ledPins[i], HIGH);
+    }
+    digitalWrite(BUZZER, HIGH);
     lastPress = 0;
   }
+}
+
+int sendHTTPReq(String payload)
+{
+  if (WiFi.status() != WL_CONNECTED)
+  {
+    Serial.println("WiFi Disconnected");
+    return -1;
+  }
+  WiFiClient client;
+  HTTPClient http;
+  if (!http.begin(client, URL))
+  {
+    Serial.println("HTTP begin error!");
+    return -1;
+  }
+  int httpResponseCode = http.POST(payload);
+  Serial.print("HTTP Response code: ");
+  Serial.println(httpResponseCode);
+  http.end();
+  return httpResponseCode;
+}
+
+int findIndex(uint8_t array[], int size, int element)
+{
+  for (int i = 0; i < size; i++)
+  {
+    if (array[i] == element)
+      return i;
+  }
+  return -1;
 }
