@@ -59,6 +59,7 @@ char daysOfWeek[7][12] = {
     "Saturday"};
 
 int sendHTTPReq(String payload);
+void showTime(void);
 
 void setup()
 {
@@ -127,29 +128,8 @@ void setup()
 
 void loop()
 {
-  DateTime now = rtc.now();
-  hour = now.hour();
-  mins = now.minute();
-  if (lastHour != hour)
-  {
-    char hourString[3];
-    sprintf(hourString, "%02d", hour);
-    lcd.setCursor(15, 0);
-    lcd.print(hourString);
-    lastHour = hour;
-  }
-  if (lastMins != mins)
-  {
-    char minString[3];
-    sprintf(minString, "%02d", mins);
-    lcd.setCursor(18, 0);
-    lcd.print(minString);
-    lastMins = mins;
-  }
-
-  char timeString[6];
-  sprintf(timeString, "%02d:%02d", hour, mins);
-  Serial.println(timeString);
+  /*Update Time*/
+  showTime();
 
   /*Temperatue and Humidity*/
   if (millis() - lastReadTime >= TEMP_READ_TIME)
@@ -162,9 +142,7 @@ void loop()
       lastReadTime = millis();
     }
   }
-
   /*Motion Detection */
-
   if (digitalRead(PIR) == HIGH)
   {
     Serial.println("Motion Detected!");
@@ -207,7 +185,7 @@ int sendHTTPReq(String payload)
   HTTPClient http;
   if (!http.begin(client, URL))
   {
-    Serial.println("HTTP begine error!");
+    Serial.println("HTTP begin error!");
     return -1;
   }
   int httpResponseCode = http.POST(payload);
@@ -215,4 +193,31 @@ int sendHTTPReq(String payload)
   Serial.println(httpResponseCode);
   http.end();
   return httpResponseCode;
+}
+
+void showTime(void)
+{
+  DateTime now = rtc.now();
+  hour = now.hour();
+  mins = now.minute();
+  if (lastHour != hour)
+  {
+    char hourString[3];
+    sprintf(hourString, "%02d", hour);
+    lcd.setCursor(15, 0);
+    lcd.print(hourString);
+    lastHour = hour;
+  }
+  if (lastMins != mins)
+  {
+    char minString[3];
+    sprintf(minString, "%02d", mins);
+    lcd.setCursor(18, 0);
+    lcd.print(minString);
+    lastMins = mins;
+  }
+
+  // char timeString[6];
+  // sprintf(timeString, "%02d:%02d", hour, mins);
+  // Serial.println(timeString);
 }
