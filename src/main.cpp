@@ -64,7 +64,7 @@ char daysOfWeek[7][12] = {
 /*function prototypes*/
 int sendHTTPReq(String payload);
 void checkTime(void);
-void checkSensor(void);
+void checkSensor(bool firstWrite);
 void checkMotion(void);
 void checkHelpBtn(void);
 
@@ -130,8 +130,7 @@ void setup()
   lcd.print("00:00");
   lcd.setCursor(0, 1);
   lcd.print("              ");
-  lcd.setCursor(0, 2);
-  lcd.print("T:" + String(t) + "C     H:" + String(h) + "%");
+  checkSensor(true);
   lcd.setCursor(0, 3);
   now = rtc.now();
   hour = now.hour();
@@ -152,7 +151,7 @@ void loop()
   /*Update Time*/
   checkTime();
   /*Temperatue and Humidity*/
-  checkSensor();
+  checkSensor(false);
   /*Motion Detection */
   if (medNotifyNum > 0)
     checkMotion();
@@ -226,9 +225,9 @@ void checkTime(void)
   }
 }
 
-void checkSensor(void)
+void checkSensor(bool firstWrite)
 {
-  if (millis() - lastReadTime < TEMP_READ_TIME)
+  if (millis() - lastReadTime < TEMP_READ_TIME && !firstWrite)
     return;
 
   if (!readDHT())
@@ -236,7 +235,17 @@ void checkSensor(void)
 
   Serial.println("Reading temperature data");
   lcd.setCursor(0, 2);
-  lcd.print("T:" + String(t) + "C     H:" + String(h) + "%");
+  lcd.print("T:" + String(t) + "C,H:" + String(h) + "%-> ");
+  if (t < 15)
+    lcd.print("Low T");
+  else if (t > 30)
+    lcd.print("High T");
+  else if (h <= 35)
+    lcd.print("Low H");
+  else if (h >= 70)
+    lcd.print("High H");
+  else
+    lcd.print("Good");
   lastReadTime = millis();
 }
 
