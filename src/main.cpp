@@ -236,16 +236,20 @@ void checkSensor(bool firstWrite)
   Serial.println("Reading temperature data");
   lcd.setCursor(0, 2);
   lcd.print("T:" + String(t) + "C,H:" + String(h) + "%-> ");
+  String conditon;
+
   if (t < 15)
-    lcd.print("Low T");
+    conditon = "Low T";
   else if (t > 30)
-    lcd.print("High T");
+    conditon = "High T";
   else if (h <= 35)
-    lcd.print("Low H");
+    conditon = "Low H";
   else if (h >= 70)
-    lcd.print("High H");
+    conditon = "High H";
   else
-    lcd.print("Good");
+    conditon = "Good";
+
+  lcd.print(conditon);
   lastReadTime = millis();
 }
 
