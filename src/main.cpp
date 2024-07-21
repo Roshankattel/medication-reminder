@@ -8,8 +8,8 @@
 #include <RTClib.h>
 
 // Intervals
-#define BTN_READ_TIME 2000    // 2 sec
-#define TEMP_READ_TIME 300000 // 5 mins
+#define BTN_READ_TIME 2000   // 2 sec
+#define TEMP_READ_TIME 60000 // 1 mins
 
 #define BUZZER 13
 #define DHT_PIN 32
@@ -18,7 +18,7 @@
 
 #define DHT_TYPE DHT22
 
-#define TOKEN "gXvM5xBt0zrXHUpdfXlY"
+#define TOKEN "ljwFFrRvXs79bdNe6Ekg"
 #define URL "http://192.168.1.133:8080/api/v1/" TOKEN "/telemetry"
 
 const char *ssid = "bhojpure";
@@ -35,7 +35,6 @@ DHT dht(DHT_PIN, DHT_TYPE);
 int t, h = 0;
 
 uint8_t lastHour, lastMins, hour, mins = 0;
-
 uint32_t lastPress = 0;
 uint32_t lastReadTime = 0;
 
@@ -136,17 +135,20 @@ void setup()
   lcd.setCursor(0, 3);
   now = rtc.now();
   hour = now.hour();
+  char nextMedString[32];
   for (int i = 0; i < sizeof(mediTime) / sizeof(mediTime[0]); i++)
   {
     if (hour < mediTime[i])
     {
-      char nextMedString[32];
       sprintf(nextMedString, "Next Medicine: %02d:00", mediTime[i]);
       lcd.print(nextMedString);
       nextMedicationTime = mediTime[i];
       break;
     }
   }
+  if (nextMedicationTime == 0)
+    sprintf(nextMedString, "Next Medicine: %02d:00", mediTime[0]);
+  lcd.print(nextMedString);
 }
 
 void loop()
@@ -213,14 +215,15 @@ void checkSensor(bool firstWrite)
     return;
   if (!readDHT())
     return;
-  // Serial.println("Reading temperature data");
+
+  Serial.println("Reading temperature data");
   lcd.setCursor(0, 2);
   lcd.print("T:" + String(t) + "C,H:" + String(h) + "%-> ");
   String conditon;
 
   if (t < 15)
     conditon = "Low T";
-  else if (t > 30)
+  else if (t > 35)
     conditon = "High T";
   else if (h <= 35)
     conditon = "Low H";
@@ -229,10 +232,9 @@ void checkSensor(bool firstWrite)
   else
     conditon = "Good";
   lcd.print(conditon);
-  if (conditon != "Good")
-  {
-    // send HTTP request
-  }
+  String payload = "{\"temperature\":" + String(t) + ",\"humidity\":" + String(h) + "}";
+  sendHTTPReq(payload);
+
   lastReadTime = millis();
 }
 
@@ -250,9 +252,11 @@ void checkMotion(void)
   char nextMedString[32];
   uint8_t count = sizeof(mediTime) / sizeof(mediTime[0]);
   nextMedicationTime = medNotifyNum + 1 >= count ? mediTime[0] : mediTime[medNotifyNum + 1];
-  sprintf(nextMedString, "Next Medicine: %02d:00", nextMedicationTime);
+  sprintf(nextMedString, "  Next Medicine: %02d:00", nextMedicationTime);
   lcd.print(nextMedString);
-  // Send HTTP Requestion
+  String payload = "{\"med_taken\":" + String(medNotifyNum + 1) + ",\"next_med_time\":" + String(nextMedicationTime) + "}";
+  sendHTTPReq(payload);
+
   medNotifyNum = -1;
 }
 
@@ -266,7 +270,7 @@ void checkHelpBtn(void)
   else if (millis() - lastPress >= BTN_READ_TIME)
   {
     Serial.println("Help Requested");
-    String jsonString = "{\"power\":false}";
+    String jsonString = "{\"help_request\":true}";
     lcd.setCursor(0, 1);
     if (sendHTTPReq(jsonString) == 200)
     {
@@ -281,7 +285,7 @@ void checkHelpBtn(void)
     {
       digitalWrite(ledPins[i], HIGH);
     }
-    digitalWrite(BUZZER, HIGH);
+    // digitalWrite(BUZZER, HIGH);
     lastPress = 0;
   }
 }
