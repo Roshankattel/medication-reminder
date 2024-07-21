@@ -11,9 +11,6 @@
 #define BTN_READ_TIME 2000    // 2 sec
 #define TEMP_READ_TIME 300000 // 5 mins
 
-#define LED1 26
-#define LED2 25
-#define LED3 33
 #define BUZZER 13
 #define DHT_PIN 32
 #define PIR 27
@@ -21,12 +18,15 @@
 
 #define DHT_TYPE DHT22
 
+#define URL "http://192.168.1.133:8080/api/v1/" TOKEN "/telemetry"
+#define TOKEN "gXvM5xBt0zrXHUpdfXlY"
+
 const char *ssid = "bhojpure";
 const char *password = "Bhojpure@4109123";
 
-#define TOKEN "gXvM5xBt0zrXHUpdfXlY"
+uint8_t mediTime[] = {6, 12, 18};
 
-#define URL "http://192.168.1.133:8080/api/v1/" TOKEN "/telemetry"
+uint8_t ledPins[] = {26, 25, 33};
 
 RTC_DS3231 rtc;
 LiquidCrystal_I2C lcd(0x27, 20, 4); // I2C address 0x27, 20 column and 4 rows
@@ -38,6 +38,9 @@ uint8_t lastHour, lastMins, hour, mins = 0;
 
 uint32_t lastPress = 0;
 uint32_t lastReadTime = 0;
+
+uint8_t medNotifyNum = 0;
+DateTime now;
 
 boolean readDHT(void)
 {
@@ -58,29 +61,34 @@ char daysOfWeek[7][12] = {
     "Friday",
     "Saturday"};
 
+/*function prototypes*/
 int sendHTTPReq(String payload);
-void showTime(void);
+void checkTime(void);
+void checkSensor(void);
+void checkMotion(void);
+void checkHelpBtn(void);
 
 void setup()
 {
 #if DEBUG == 1
   Serial.begin(115200);
 #endif
-  pinMode(LED1, OUTPUT);
-  pinMode(LED2, OUTPUT);
-  pinMode(LED3, OUTPUT);
+
   pinMode(BUZZER, OUTPUT);
   pinMode(BTN, INPUT_PULLUP);
   pinMode(PIR, INPUT);
 
-  digitalWrite(LED1, LOW);
-  digitalWrite(LED2, LOW);
-  digitalWrite(LED3, LOW);
+  /*Initalize the LED pins*/
+  for (int i = 0; i < sizeof(ledPins) / sizeof(ledPins[0]); i++)
+  {
+    pinMode(ledPins[i], OUTPUT);
+    digitalWrite(ledPins[i], LOW);
+  }
+
   digitalWrite(BUZZER, LOW);
 
   lcd.init(); // initialize the lcd
   lcd.backlight();
-
   lcd.setCursor(0, 1);
   lcd.print("Starting....");
 
@@ -115,62 +123,43 @@ void setup()
     // wait 1 second for re-trying
     delay(1000);
   }
+  lcd.setCursor(0, 0);
+  lcd.print("WiFi");
 
-  lcd.setCursor(0, 0);                                     // move cursor to the third row
-  lcd.print("T:" + String(t) + "C  H:" + String(h) + "%"); // print message at the third row
-  lcd.setCursor(15, 0);                                    // move cursor the first row
-  lcd.print("00:00");                                      // print message at the second row
-  lcd.setCursor(0, 1);                                     // move cursor to the second row
-  lcd.print("I2C Address: 0x27");                          // print message at the second row
-  lcd.setCursor(0, 2);                                     // move cursor to the fourth row
-  lcd.print("Next Medication in:");                        // print message the fourth row
+  lcd.setCursor(15, 0);
+  lcd.print("00:00");
+  lcd.setCursor(0, 1);
+  lcd.print("              ");
+  lcd.setCursor(0, 2);
+  lcd.print("T:" + String(t) + "C     H:" + String(h) + "%");
+  lcd.setCursor(0, 3);
+  now = rtc.now();
+  hour = now.hour();
+  for (int i = 0; i < sizeof(mediTime) / sizeof(mediTime[0]); i++)
+  {
+    if (hour < mediTime[i])
+    {
+      char nextMedString[32];
+      sprintf(nextMedString, "Next Medicine: %02d:00", mediTime[i]);
+      lcd.print(nextMedString);
+      break;
+    }
+  }
 }
 
 void loop()
 {
   /*Update Time*/
-  showTime();
-
+  checkTime();
   /*Temperatue and Humidity*/
-  if (millis() - lastReadTime >= TEMP_READ_TIME)
-  {
-    if (readDHT())
-    {
-      Serial.println("Reading temperature data");
-      lcd.setCursor(0, 0); // move cursor to the third row
-      lcd.print("T:" + String(t) + "C  H:" + String(h) + "%");
-      lastReadTime = millis();
-    }
-  }
+  checkSensor();
   /*Motion Detection */
-  if (digitalRead(PIR) == HIGH)
-  {
-    Serial.println("Motion Detected!");
-  }
+  if (medNotifyNum > 0)
+    checkMotion();
+
   /*HELP BUTTON*/
-  if (digitalRead(BTN) == LOW)
-  {
-    if (lastPress == 0)
-      lastPress = millis();
-    else if (millis() - lastPress >= BTN_READ_TIME)
-    {
-      Serial.println("Help Requested");
-      String jsonString = "{\"power\":false}";
-      if (sendHTTPReq(jsonString) == 200)
-      {
-        lcd.setCursor(0, 2);
-        lcd.print("   HELP REQUESTED   ");
-      }
-      else
-      {
-        Serial.println("Failed");
-      }
-      digitalWrite(LED1, HIGH);
-      digitalWrite(LED2, HIGH);
-      digitalWrite(LED3, HIGH);
-      lastPress = 0;
-    }
-  }
+  checkHelpBtn();
+
   delay(1000); // delay 1 seconds
 }
 
@@ -195,7 +184,7 @@ int sendHTTPReq(String payload)
   return httpResponseCode;
 }
 
-void showTime(void)
+void checkTime(void)
 {
   DateTime now = rtc.now();
   hour = now.hour();
@@ -220,4 +209,76 @@ void showTime(void)
   // char timeString[6];
   // sprintf(timeString, "%02d:%02d", hour, mins);
   // Serial.println(timeString);
+
+  if (mins != 0)
+    return;
+
+  for (int i = 0; i < sizeof(mediTime) / sizeof(mediTime[0]); i++)
+  {
+    if (hour == mediTime[i])
+    {
+      Serial.println("It's medication time");
+      digitalWrite(ledPins[i], HIGH);
+      digitalWrite(BUZZER, HIGH);
+      medNotifyNum = i;
+      break;
+    }
+  }
+}
+
+void checkSensor(void)
+{
+  if (millis() - lastReadTime < TEMP_READ_TIME)
+    return;
+
+  if (!readDHT())
+    return;
+
+  Serial.println("Reading temperature data");
+  lcd.setCursor(0, 2);
+  lcd.print("T:" + String(t) + "C     H:" + String(h) + "%");
+  lastReadTime = millis();
+}
+
+void checkMotion(void)
+{
+  if (!digitalRead(PIR))
+    return;
+
+  Serial.println("Motion Detected!");
+  digitalWrite(BUZZER, LOW);
+  digitalWrite(ledPins[medNotifyNum], LOW);
+  lcd.setCursor(0, 2);
+  char nextMedString[32];
+  sprintf(nextMedString, "Next Medicine: %02d:00", (mediTime[medNotifyNum + 1]));
+  lcd.print(nextMedString);
+  // Send HTTP Requestion
+  medNotifyNum = 0;
+}
+
+void checkHelpBtn(void)
+{
+  if (digitalRead(BTN) == HIGH)
+    return;
+
+  if (lastPress == 0)
+    lastPress = millis();
+  else if (millis() - lastPress >= BTN_READ_TIME)
+  {
+    Serial.println("Help Requested");
+    String jsonString = "{\"power\":false}";
+    if (sendHTTPReq(jsonString) == 200)
+    {
+      lcd.setCursor(0, 1);
+      lcd.print("   HELP REQUESTED   ");
+    }
+    else
+    {
+      Serial.println("Failed");
+    }
+    // digitalWrite(LED1, HIGH);
+    // digitalWrite(LED2, HIGH);
+    // digitalWrite(LED3, HIGH);
+    lastPress = 0;
+  }
 }
