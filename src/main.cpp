@@ -27,6 +27,7 @@ const char *password = "Bhojpure@4109123";
 RTC_DS3231 rtc;
 LiquidCrystal_I2C lcd(0x27, 20, 4); // I2C address 0x27, 20 column and 4 rows
 DHT dht(DHT_PIN, DHT_TYPE);
+
 DateTime now;
 
 bool helpReq = false;
@@ -34,30 +35,13 @@ bool helpReq = false;
 uint8_t mediTime[] = {8, 9, 10};
 uint8_t ledPins[] = {26, 25, 33};
 uint8_t nextMedicationTime = 0;
-uint8_t lastHour, lastMins, hour, mins = 0;
+uint8_t lastHour = 0, lastMins = 0, hour = 0, mins = 0;
+
 uint32_t lastPress = 0;
 uint32_t lastReadTime = 0;
-int t, h = 0;
+
+int temp = 0, humid = 0;
 int medNotifyNum = -1;
-
-boolean readDHT(void)
-{
-  h = dht.readHumidity();
-  t = dht.readTemperature();
-  if (isnan(h) || isnan(t) || h > 100)
-    return false;
-  else
-    return true;
-}
-
-char daysOfWeek[7][12] = {
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday"};
 
 /*function prototypes*/
 int sendHTTPReq(String payload);
@@ -66,6 +50,7 @@ void checkSensor(bool firstWrite);
 void checkMotion(void);
 void checkHelpBtn(void);
 int findIndex(uint8_t array[], int size, int element);
+boolean readDHT(void);
 
 void setup()
 {
@@ -78,10 +63,10 @@ void setup()
   pinMode(PIR, INPUT);
 
   /*Initalize the LED pins*/
-  for (int i = 0; i < sizeof(ledPins) / sizeof(ledPins[0]); i++)
+  for (int led : ledPins)
   {
-    pinMode(ledPins[i], OUTPUT);
-    digitalWrite(ledPins[i], LOW);
+    pinMode(led, OUTPUT);
+    digitalWrite(led, LOW);
   }
 
   digitalWrite(BUZZER, LOW);
@@ -218,22 +203,22 @@ void checkSensor(bool firstWrite)
   Serial.println("Reading temperature data");
 
   lcd.setCursor(0, 2);
-  lcd.printf("T:%dC,H:%d%%-> ", t, h);
+  lcd.printf("T:%dC,H:%d%%-> ", temp, humid);
 
   String conditon;
-  if (t < 15)
+  if (temp < 15)
     conditon = "Low T";
-  else if (t > 35)
+  else if (temp > 35)
     conditon = "High T";
-  else if (h <= 35)
+  else if (humid <= 35)
     conditon = "Low H";
-  else if (h >= 70)
+  else if (humid >= 70)
     conditon = "High H";
   else
     conditon = "Good";
 
   lcd.print(conditon);
-  String payload = "{\"temperature\":" + String(t) + ",\"humidity\":" + String(h) + "}";
+  String payload = "{\"temperature\":" + String(temp) + ",\"humidity\":" + String(humid) + "}";
   sendHTTPReq(payload);
 
   lastReadTime = millis();
@@ -301,7 +286,7 @@ void checkHelpBtn(void)
   lastPress = 0;
 }
 
-int sendHTTPReq(String payload)
+int sendHTTPReq(const String payload)
 {
   if (WiFi.status() != WL_CONNECTED)
   {
@@ -334,4 +319,14 @@ int findIndex(uint8_t array[], int size, int element)
       return i;
   }
   return -1;
+}
+
+boolean readDHT(void)
+{
+  humid = dht.readHumidity();
+  temp = dht.readTemperature();
+  if (isnan(humid) || isnan(temp) || humid > 100)
+    return false;
+  else
+    return true;
 }
