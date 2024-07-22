@@ -24,23 +24,21 @@
 const char *ssid = "bhojpure";
 const char *password = "Bhojpure@4109123";
 
-uint8_t mediTime[] = {6, 12, 18};
-
-uint8_t ledPins[] = {26, 25, 33};
-
 RTC_DS3231 rtc;
 LiquidCrystal_I2C lcd(0x27, 20, 4); // I2C address 0x27, 20 column and 4 rows
 DHT dht(DHT_PIN, DHT_TYPE);
+DateTime now;
 
-int t, h = 0;
+bool helpReq = false;
 
+uint8_t mediTime[] = {8, 9, 10};
+uint8_t ledPins[] = {26, 25, 33};
+uint8_t nextMedicationTime = 0;
 uint8_t lastHour, lastMins, hour, mins = 0;
 uint32_t lastPress = 0;
 uint32_t lastReadTime = 0;
-
+int t, h = 0;
 int medNotifyNum = -1;
-uint8_t nextMedicationTime = 0;
-DateTime now;
 
 boolean readDHT(void)
 {
@@ -124,6 +122,7 @@ void setup()
     // wait 1 second for re-trying
     delay(1000);
   }
+
   lcd.setCursor(0, 0);
   lcd.print("WiFi");
 
@@ -131,24 +130,30 @@ void setup()
   lcd.print("00:00");
   lcd.setCursor(0, 1);
   lcd.print("              ");
+
   checkSensor(true);
-  lcd.setCursor(0, 3);
+
   now = rtc.now();
   hour = now.hour();
-  char nextMedString[32];
-  for (int i = 0; i < sizeof(mediTime) / sizeof(mediTime[0]); i++)
+
+  lcd.setCursor(0, 3);
+  bool nextMedFound = false;
+  for (int time : mediTime)
   {
-    if (hour < mediTime[i])
+    if (hour < time)
     {
-      sprintf(nextMedString, "Next Medicine: %02d:00", mediTime[i]);
-      lcd.print(nextMedString);
-      nextMedicationTime = mediTime[i];
+      lcd.printf("Next Medicine: %02d:00", time);
+      nextMedicationTime = time;
+      nextMedFound = true;
       break;
     }
   }
-  if (nextMedicationTime == 0)
-    sprintf(nextMedString, "Next Medicine: %02d:00", mediTime[0]);
-  lcd.print(nextMedString);
+
+  if (!nextMedFound)
+  {
+    nextMedicationTime = mediTime[0];
+    lcd.printf("Next Medicine: %02d:00", nextMedicationTime);
+  }
 }
 
 void loop()
@@ -174,26 +179,20 @@ void checkTime(void)
   DateTime now = rtc.now();
   hour = now.hour();
   mins = now.minute();
+
   if (lastHour != hour)
   {
-    char hourString[3];
-    sprintf(hourString, "%02d", hour);
     lcd.setCursor(15, 0);
-    lcd.print(hourString);
+    lcd.printf("%02d", hour);
     lastHour = hour;
   }
+
   if (lastMins != mins)
   {
-    char minString[3];
-    sprintf(minString, "%02d", mins);
     lcd.setCursor(18, 0);
-    lcd.print(minString);
+    lcd.printf("%02d", mins);
     lastMins = mins;
   }
-
-  // char timeString[6];
-  // sprintf(timeString, "%02d:%02d", hour, mins);
-  // Serial.println(timeString);
 
   if (mins != 0)
     return;
@@ -217,10 +216,11 @@ void checkSensor(bool firstWrite)
     return;
 
   Serial.println("Reading temperature data");
-  lcd.setCursor(0, 2);
-  lcd.print("T:" + String(t) + "C,H:" + String(h) + "%-> ");
-  String conditon;
 
+  lcd.setCursor(0, 2);
+  lcd.printf("T:%dC,H:%d%%-> ", t, h);
+
+  String conditon;
   if (t < 15)
     conditon = "Low T";
   else if (t > 35)
@@ -231,6 +231,7 @@ void checkSensor(bool firstWrite)
     conditon = "High H";
   else
     conditon = "Good";
+
   lcd.print(conditon);
   String payload = "{\"temperature\":" + String(t) + ",\"humidity\":" + String(h) + "}";
   sendHTTPReq(payload);
@@ -246,14 +247,15 @@ void checkMotion(void)
   Serial.println("Motion Detected!");
   digitalWrite(BUZZER, LOW);
   digitalWrite(ledPins[medNotifyNum], LOW);
+
   lcd.setCursor(0, 1);
   lcd.print("Medicine " + String(medNotifyNum + 1) + " Taken   ");
+
   lcd.setCursor(0, 3);
-  char nextMedString[32];
   uint8_t count = sizeof(mediTime) / sizeof(mediTime[0]);
-  nextMedicationTime = medNotifyNum + 1 >= count ? mediTime[0] : mediTime[medNotifyNum + 1];
-  sprintf(nextMedString, "  Next Medicine: %02d:00", nextMedicationTime);
-  lcd.print(nextMedString);
+  nextMedicationTime = (medNotifyNum + 1) >= count ? mediTime[0] : mediTime[medNotifyNum + 1];
+  lcd.printf("Next Medicine: %02d:00", nextMedicationTime);
+
   String payload = "{\"med_taken\":" + String(medNotifyNum + 1) + ",\"next_med_time\":" + String(nextMedicationTime) + "}";
   sendHTTPReq(payload);
 
@@ -265,29 +267,38 @@ void checkHelpBtn(void)
   if (digitalRead(BTN) == HIGH)
     return;
 
+  unsigned long currentMillis = millis();
   if (lastPress == 0)
-    lastPress = millis();
-  else if (millis() - lastPress >= BTN_READ_TIME)
+  {
+    lastPress = currentMillis;
+    return;
+  }
+
+  if (currentMillis - lastPress < BTN_READ_TIME)
+    return;
+
+  if (!helpReq)
   {
     Serial.println("Help Requested");
     String jsonString = "{\"help_request\":true}";
     lcd.setCursor(0, 1);
     if (sendHTTPReq(jsonString) == 200)
-    {
       lcd.print("   HELP REQUESTED   ");
-    }
     else
-    {
       lcd.print(" HELP REQUEST FAIL! ");
-      Serial.println("HTTP Request Failed");
-    }
-    for (int i = 0; i < sizeof(ledPins) / sizeof(ledPins[0]); i++)
-    {
-      digitalWrite(ledPins[i], HIGH);
-    }
-    // digitalWrite(BUZZER, HIGH);
-    lastPress = 0;
+
+    for (int pin : ledPins)
+      digitalWrite(pin, HIGH);
+    digitalWrite(BUZZER, HIGH);
   }
+
+  delay(1000);
+  helpReq = !helpReq;
+  for (int pin : ledPins)
+    digitalWrite(pin, helpReq);
+  digitalWrite(BUZZER, helpReq);
+
+  lastPress = 0;
 }
 
 int sendHTTPReq(String payload)
@@ -299,14 +310,18 @@ int sendHTTPReq(String payload)
   }
   WiFiClient client;
   HTTPClient http;
+
   if (!http.begin(client, URL))
   {
     Serial.println("HTTP begin error!");
     return -1;
   }
+
   int httpResponseCode = http.POST(payload);
+
   Serial.print("HTTP Response code: ");
   Serial.println(httpResponseCode);
+
   http.end();
   return httpResponseCode;
 }
