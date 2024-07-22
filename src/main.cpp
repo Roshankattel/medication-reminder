@@ -6,11 +6,15 @@
 #include <LiquidCrystal_I2C.h>
 #include <DHT.h>
 #include <RTClib.h>
+#include <WiFiManager.h>
 
-// Intervals
+WiFiManager wm;
+
+/*Intervals*/
 #define BTN_READ_TIME 2000   // 2 sec
 #define TEMP_READ_TIME 60000 // 1 mins
 
+/*Pinout*/
 #define BUZZER 13
 #define DHT_PIN 32
 #define PIR 27
@@ -18,11 +22,12 @@
 
 #define DHT_TYPE DHT22
 
+/*Thingsboard Parameters*/
 #define TOKEN "ljwFFrRvXs79bdNe6Ekg"
 #define URL "http://192.168.1.133:8080/api/v1/" TOKEN "/telemetry"
 
-const char *ssid = "bhojpure";
-const char *password = "Bhojpure@4109123";
+#define AP_SSID "Medical-Kit-1"
+#define AP_PASS "123456789"
 
 RTC_DS3231 rtc;
 LiquidCrystal_I2C lcd(0x27, 20, 4); // I2C address 0x27, 20 column and 4 rows
@@ -43,14 +48,14 @@ uint32_t lastReadTime = 0;
 int temp = 0, humid = 0;
 int medNotifyNum = -1;
 
-/*function prototypes*/
-int sendHTTPReq(String payload);
+/*function declarations*/
+bool readDHT(void);
 void checkTime(void);
-void checkSensor(bool firstWrite);
 void checkMotion(void);
 void checkHelpBtn(void);
+int sendHTTPReq(String payload);
+void checkSensor(bool firstWrite);
 int findIndex(uint8_t array[], int size, int element);
-boolean readDHT(void);
 
 void setup()
 {
@@ -61,7 +66,6 @@ void setup()
   pinMode(BUZZER, OUTPUT);
   pinMode(BTN, INPUT_PULLUP);
   pinMode(PIR, INPUT);
-
   /*Initalize the LED pins*/
   for (int led : ledPins)
   {
@@ -73,6 +77,25 @@ void setup()
 
   lcd.init(); // initialize the lcd
   lcd.backlight();
+
+  if (digitalRead(BTN) == LOW)
+  {
+    lcd.setCursor(0, 0);
+    lcd.print("Please connect Wi-Fi");
+    lcd.setCursor(0, 1);
+    lcd.printf("SSID:%s", AP_SSID);
+    lcd.setCursor(0, 2);
+    lcd.printf("PASS:%s", AP_PASS);
+    wm.setDarkMode(true);
+    Serial.println(F("Trigger button is pressed"));
+    // wm.resetSettings();
+    wm.setConfigPortalTimeout(240);
+    if (!wm.startConfigPortal(AP_SSID, AP_PASS))
+    {
+      ESP.restart();
+    }
+  }
+  lcd.clear();
   lcd.setCursor(0, 1);
   lcd.print("Starting....");
 
@@ -94,51 +117,33 @@ void setup()
     lcd.print("Temp sensor error!");
   }
 
-  // Connect to Wi-Fi
-  WiFi.mode(WIFI_STA);
-  Serial.print("Attempting to connect to SSID: ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, password);
+  wm.setConnectTimeout(60);
+  WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE, INADDR_NONE);
+  WiFi.setHostname(AP_SSID); // Define hostname
+  bool result = wm.autoConnect(AP_SSID, "123456789");
 
-  // attempt to connect to Wifi network:
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.print(".");
-    // wait 1 second for re-trying
-    delay(1000);
-  }
-
+  lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("WiFi");
 
   lcd.setCursor(15, 0);
   lcd.print("00:00");
-  lcd.setCursor(0, 1);
-  lcd.print("              ");
-
   checkSensor(true);
 
   now = rtc.now();
   hour = now.hour();
 
   lcd.setCursor(0, 3);
-  bool nextMedFound = false;
+  nextMedicationTime = mediTime[0];
   for (int time : mediTime)
   {
     if (hour < time)
     {
-      lcd.printf("Next Medicine: %02d:00", time);
       nextMedicationTime = time;
-      nextMedFound = true;
       break;
     }
   }
-
-  if (!nextMedFound)
-  {
-    nextMedicationTime = mediTime[0];
-    lcd.printf("Next Medicine: %02d:00", nextMedicationTime);
-  }
+  lcd.printf("Next Medicine: %02d:00", nextMedicationTime);
 }
 
 void loop()
@@ -276,6 +281,11 @@ void checkHelpBtn(void)
       digitalWrite(pin, HIGH);
     digitalWrite(BUZZER, HIGH);
   }
+  else
+  {
+    lcd.setCursor(0, 1);
+    lcd.print("                    ");
+  }
 
   delay(1000);
   helpReq = !helpReq;
@@ -321,7 +331,7 @@ int findIndex(uint8_t array[], int size, int element)
   return -1;
 }
 
-boolean readDHT(void)
+bool readDHT(void)
 {
   humid = dht.readHumidity();
   temp = dht.readTemperature();
