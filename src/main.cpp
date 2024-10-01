@@ -8,8 +8,6 @@
 #include <RTClib.h>
 #include <WiFiManager.h>
 
-WiFiManager wm;
-
 /*Intervals*/
 #define BTN_READ_TIME 2000   // 2 sec
 #define TEMP_READ_TIME 60000 // 1 mins
@@ -24,7 +22,7 @@ WiFiManager wm;
 
 /*Thingsboard Parameters*/
 #define TOKEN "ljwFFrRvXs79bdNe6Ekg"
-#define URL "http://192.168.1.133:8080/api/v1/" TOKEN "/telemetry"
+#define URL "http://192.168.1.90:8080/api/v1/" TOKEN "/telemetry"
 
 #define AP_SSID "Medical-Kit-1"
 #define AP_PASS "123456789"
@@ -32,12 +30,13 @@ WiFiManager wm;
 RTC_DS3231 rtc;
 LiquidCrystal_I2C lcd(0x27, 20, 4); // I2C address 0x27, 20 column and 4 rows
 DHT dht(DHT_PIN, DHT_TYPE);
+WiFiManager wm;
 
 DateTime now;
 
 bool helpReq = false;
 
-uint8_t mediTime[] = {8, 9, 10};
+uint8_t mediTime[] = {13, 14, 15};
 uint8_t ledPins[] = {26, 25, 33};
 uint8_t nextMedicationTime = 0;
 uint8_t lastHour = 0, lastMins = 0, hour = 0, mins = 0;
